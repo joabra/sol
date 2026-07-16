@@ -111,3 +111,29 @@ npm install && npm run build:web
 # skapa ~/Library/LaunchAgents/se.solvakt.plist som kör: node server/index.js
 ```
 På Linux: skapa en systemd-tjänst med `ExecStart=node server/index.js` och `Restart=always`.
+
+## Unraid (Docker) — rekommenderat
+
+En färdig image byggs automatiskt vid varje push: `ghcr.io/joabra/sol:latest`
+
+1. I Unraid: **Docker → Add Container**
+2. Fyll i:
+   - **Name:** `solvakt`
+   - **Repository:** `ghcr.io/joabra/sol:latest`
+   - **Network Type:** `bridge`
+   - **Port:** host `3000` → container `3000`
+   - **Path:** host `/mnt/user/appdata/solvakt` → container `/data` (här sparas inställningar, lösenord och loggar)
+3. Starta containern och öppna `http://<unraid-ip>:3000`
+4. Välj lösenord vid första besöket, lägg in Sungrow-uppgifter under Inställningar
+
+**Uppdatera:** klicka *force update* på containern (hämtar senaste `latest`).
+
+**Modbus:** eftersom containern kör i ditt hemnätverk fungerar lokal Modbus-styrning mot WiNet-S-dongeln (om din firmware tillåter skrivningar).
+
+Eller via terminalen på Unraid:
+```bash
+docker run -d --name solvakt --restart unless-stopped \
+  -p 3000:3000 \
+  -v /mnt/user/appdata/solvakt:/data \
+  ghcr.io/joabra/sol:latest
+```
