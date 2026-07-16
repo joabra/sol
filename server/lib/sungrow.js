@@ -14,7 +14,7 @@ function headers(secretKey, token) {
   return h;
 }
 
-async function call(endpoint, body, { retry = true } = {}) {
+export async function call(endpoint, body, { retry = true } = {}) {
   const s = loadSettings().sungrow;
   if (!s.appkey || !s.secretKey) throw new Error('NOT_CONFIGURED');
 
@@ -89,22 +89,71 @@ const PLANT_POINTS = {
   '83252': 'batterySocPct',
 };
 
+// Realtidsvärden från hybridväxelriktaren (device_type 14) — ger batteri- och nätflöde
+const INVERTER_POINTS = {
+  '13003': 'invPvPowerW',        // total DC-effekt (PV)
+  '13119': 'invLoadPowerW',      // husets last enligt växelriktaren
+  '13126': 'battChargePowerW',   // batteriladdning W
+  '13150': 'battDischargePowerW',// batteriurladdning W
+  '13149': 'gridImportPowerW',   // köpt effekt W
+  '13121': 'gridExportPowerW',   // exporterad effekt W
+  '13141': 'invSocFrac',         // SOC som andel 0–1
+};
+
+const inverterPsKeyCache = new Map();
+async function getInverterPsKey(psId) {
+  const key = String(psId);
+  if (inverterPsKeyCache.has(key)) return inverterPsKeyCache.get(key);
+  const devices = await getDeviceList(psId);
+  const inv = devices.find((d) => d.device_type === 14 || d.device_type === 1);
+  const psKey = inv?.ps_key || null;
+  if (psKey) inverterPsKeyCache.set(key, psKey);
+  return psKey;
+}
+
 export async function getRealtime(psId) {
   const psKey = `${psId}_11_0_0`;
-  const data = await call('/openapi/getDeviceRealTimeData', {
-    device_type: 11,
-    ps_key_list: [psKey],
-    point_id_list: Object.keys(PLANT_POINTS),
-  });
-  const point = data.device_point_list?.[0]?.device_point || {};
+  const invPsKey = await getInverterPsKey(psId).catch(() => null);
+
+  const [plantData, invData] = await Promise.all([
+    call('/openapi/getDeviceRealTimeData', {
+      device_type: 11,
+      ps_key_list: [psKey],
+      point_id_list: Object.keys(PLANT_POINTS),
+    }),
+    invPsKey
+      ? call('/openapi/getDeviceRealTimeData', {
+          device_type: Number(invPsKey.split('_')[1]),
+          ps_key_list: [invPsKey],
+          point_id_list: Object.keys(INVERTER_POINTS),
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const num = (v) => (v !== undefined && v !== null && v !== '--' ? Number(v) : null);
+  const point = plantData.device_point_list?.[0]?.device_point || {};
   const out = { deviceTime: point.device_time || null };
   for (const [id, name] of Object.entries(PLANT_POINTS)) {
-    const v = point['p' + id];
-    out[name] = v !== undefined && v !== null && v !== '--' ? Number(v) : null;
+    out[name] = num(point['p' + id]);
   }
   // Punkt 83252 returnerar SOC som andel (0–1) -> konvertera till procent
   if (out.batterySocPct !== null && out.batterySocPct <= 1) out.batterySocPct *= 100;
   else if (out.batterySocPct !== null && out.batterySocPct > 100) out.batterySocPct /= 100;
+
+  // Batteri- och nätflöde från växelriktaren
+  const inv = {};
+  const invPoint = invData?.device_point_list?.[0]?.device_point;
+  if (invPoint) {
+    for (const [id, name] of Object.entries(INVERTER_POINTS)) inv[name] = num(invPoint['p' + id]);
+    out.batteryPowerW = (inv.battChargePowerW ?? 0) - (inv.battDischargePowerW ?? 0); // + = laddar
+    out.gridPowerW = (inv.gridImportPowerW ?? 0) - (inv.gridExportPowerW ?? 0);       // + = import
+    if (inv.invPvPowerW !== null) out.pvPowerW = inv.invPvPowerW;
+    if (inv.invLoadPowerW !== null) out.loadPowerW = inv.invLoadPowerW;
+    if (inv.invSocFrac !== null) out.batterySocPct = inv.invSocFrac * 100;
+  } else {
+    out.batteryPowerW = null;
+    out.gridPowerW = null;
+  }
   return out;
 }
 
