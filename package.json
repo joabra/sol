@@ -1,0 +1,16 @@
+{
+  "name": "solvakt",
+  "version": "1.0.0",
+  "description": "Sungrow solar dashboard med spotprisstyrd export-optimering",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "build:web": "cd web && npm run build",
+    "postinstall": "cd web && npm install"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "modbus-serial": "^8.0.25"
+  }
+}
