@@ -2,6 +2,63 @@ import { useState } from 'react';
 import { usePoll, fmtSek } from '../hooks.js';
 import { api } from '../api.js';
 
+function AiAdvisor() {
+  const { data: ai, refetch } = usePoll(api.ai, 60000);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const analyze = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.aiAnalyze();
+      refetch?.();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (ai && !ai.configured) return null; // ingen Ollama konfigurerad -> göm kortet
+
+  const last = ai?.last;
+  return (
+    <div className="card border border-violet-500/20">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-bold flex items-center gap-2">
+          <span className="text-violet-400">✦</span> AI-rådgivare
+          {last && <span className="text-xs font-normal text-slate-500">({last.model})</span>}
+        </h2>
+        <button className="btn-primary" disabled={busy} onClick={analyze}>
+          {busy ? 'Analyserar…' : 'Analysera nu'}
+        </button>
+      </div>
+      {busy && (
+        <p className="text-sm text-slate-400 animate-pulse">
+          AI:n analyserar priser, historik och batteristatus — tar oftast 5–30 sekunder…
+        </p>
+      )}
+      {err && <p className="text-sm text-red-400">Fel: {err}</p>}
+      {!busy && last && (
+        <div>
+          <pre className="text-sm text-slate-200 whitespace-pre-wrap font-sans leading-relaxed">{last.text}</pre>
+          <p className="text-xs text-slate-500 mt-3">
+            {new Date(last.time).toLocaleString('sv-SE')} · {last.tookSec}s ·
+            SOC {last.context?.socPct?.toFixed(0)} % · spot {last.context?.spotNow?.toFixed(2)} kr/kWh
+          </p>
+        </div>
+      )}
+      {!busy && !last && !err && (
+        <p className="text-sm text-slate-500">
+          Klicka på ”Analysera nu” så tar AI:n fram en 24-timmarsplan för köp/sälj baserat på priser,
+          din förbrukningshistorik och batteriets status.
+        </p>
+      )}
+    </div>
+  );
+}
+
 const ACTION_STYLE = {
   charge: 'text-batt border-batt/40 bg-batt/10',
   discharge: 'text-solar border-solar/40 bg-solar/10',
@@ -117,6 +174,8 @@ export default function Optimizer() {
           {manualMsg && <p className="text-xs text-slate-400 mt-2">{manualMsg}</p>}
         </div>
       </div>
+
+      <AiAdvisor />
 
       <div className="card">
         <h2 className="font-bold mb-3">Beslutslogg</h2>

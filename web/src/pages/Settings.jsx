@@ -17,6 +17,7 @@ export default function Settings() {
   const [testResult, setTestResult] = useState(null);
   const [tibberResult, setTibberResult] = useState(null);
   const [modbusResult, setModbusResult] = useState(null);
+  const [aiResult, setAiResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -91,6 +92,24 @@ export default function Settings() {
     }
   };
 
+  const testAi = async () => {
+    setBusy(true);
+    setAiResult(null);
+    try {
+      await api.saveSettings(s);
+      const r = await api.aiTest();
+      setAiResult(
+        r.ok
+          ? `✓ Ansluten! ${r.modelAvailable ? 'Modellen finns' : `⚠ modellen saknas — installerade: ${r.models.join(', ')}`}`
+          : `✗ ${r.error}`
+      );
+    } catch (e) {
+      setAiResult(`✗ ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-3xl">
       <div className="card">
@@ -159,6 +178,22 @@ export default function Settings() {
         <div className="mt-4 flex items-center gap-3">
           <button className="btn-ghost" onClick={testModbus} disabled={busy}>Testa Modbus</button>
           {modbusResult && <span className="text-sm text-slate-300">{modbusResult}</span>}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-bold mb-1">AI-rådgivare (Ollama)</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Lokal AI som analyserar priser, historik och batteristatus och ger en 24-timmarsplan för köp/sälj.
+          Kräver en <a className="underline" href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a>-server på nätverket.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Ollama-URL" hint="t.ex. http://192.168.1.9:11434" value={s.ai?.ollamaUrl || ''} onChange={str('ai', 'ollamaUrl')} />
+          <Field label="Modell" hint="qwen3.5:4b rekommenderas — snabb och bra på svenska" value={s.ai?.model || ''} onChange={str('ai', 'model')} />
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button className="btn-ghost" onClick={testAi} disabled={busy}>Testa Ollama</button>
+          {aiResult && <span className="text-sm text-slate-300">{aiResult}</span>}
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import * as modbus from './lib/modbus.js';
 import * as control from './lib/control.js';
 import * as auth from './lib/auth.js';
 import * as optimizer from './lib/optimizer.js';
+import * as ai from './lib/ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -225,6 +226,24 @@ app.post('/api/control/:cmd(charge|discharge|stop)', wrap(async (req, res) => {
   const r = cmd === 'charge' ? await control.charge(powerW) : cmd === 'discharge' ? await control.discharge(powerW) : await control.stop();
   optimizer.setCurrentMode(cmd === 'charge' ? 'charging' : cmd === 'discharge' ? 'discharging' : 'self-consumption');
   res.json({ ok: true, cmd, powerW, via: r.via, mock: r.via === 'mock', result: r.result });
+}));
+
+// --- AI-rådgivare (lokal Ollama) ---
+app.get('/api/ai', (req, res) => {
+  res.json({ configured: ai.isConfigured(), last: ai.getLastAnalysis() });
+});
+
+app.post('/api/ai/analyze', wrap(async (req, res) => {
+  res.json(await ai.analyze());
+}));
+
+app.get('/api/ai/models', wrap(async (req, res) => {
+  res.json(await ai.listModels());
+}));
+
+app.post('/api/ai/test', wrap(async (req, res) => {
+  if (!ai.isConfigured()) return res.status(400).json({ ok: false, error: 'Ollama-URL saknas' });
+  res.json(await ai.test());
 }));
 
 // --- Modbus (WiNet-S) ---

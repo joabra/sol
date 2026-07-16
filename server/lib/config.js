@@ -36,6 +36,11 @@ const DEFAULTS = {
     energyTaxSekPerKwh: 0.36,    // energiskatt
     vatFactor: 1.25,
   },
+  // AI-rådgivare via lokal Ollama-server
+  ai: {
+    ollamaUrl: '',               // t.ex. http://192.168.1.9:11434
+    model: 'qwen3.5:4b',
+  },
   // Optimering
   optimizer: {
     enabled: false,

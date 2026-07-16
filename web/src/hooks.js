@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export function usePoll(fetcher, intervalMs) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -16,9 +17,9 @@ export function usePoll(fetcher, intervalMs) {
       alive = false;
       clearInterval(t);
     };
-  }, []);
+  }, [nonce]);
 
-  return { data, error };
+  return { data, error, refetch: () => setNonce((n) => n + 1) };
 }
 
 export const fmtW = (w) =>

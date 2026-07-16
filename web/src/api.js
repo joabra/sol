@@ -26,6 +26,10 @@ export const api = {
   optimizerRun: () => fetch('/api/optimizer/run', { method: 'POST' }).then(json),
   optimizerToggle: (start) => fetch(`/api/optimizer/${start ? 'start' : 'stop'}`, { method: 'POST' }).then(json),
   modbusTest: () => fetch('/api/modbus/test', { method: 'POST' }).then(json),
+  ai: () => fetch('/api/ai').then(json),
+  aiAnalyze: () => fetch('/api/ai/analyze', { method: 'POST' }).then(json),
+  aiModels: () => fetch('/api/ai/models').then(json),
+  aiTest: () => fetch('/api/ai/test', { method: 'POST' }).then(json),
   control: (cmd, powerW) =>
     fetch(`/api/control/${cmd}`, {
       method: 'POST',
