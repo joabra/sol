@@ -84,3 +84,30 @@ data/                 Inställningar & beslutslogg (skapas vid körning)
 - **Styrning via molnet** har 5–30 s latens. För snabbare/robustare styrning kan lokal Modbus TCP via WiNet-S-dongeln användas (register 13049–13051) — se t.ex. `mkaiser/Sungrow-SHx-Inverter-Modbus-Home-Assistant`.
 - Morgondagens spotpriser publiceras ~13:00.
 - paramSetting-kommandon har 30 min utgångstid (`expire_second`) som säkerhetsnät.
+
+## Driftsättning (deployment)
+
+**Solvakt är byggd för att köras hemma**, på samma nätverk som växelriktaren — t.ex. på en Raspberry Pi, NAS eller alltid-på-dator. Serverlösa plattformar som **Vercel/Netlify fungerar inte**: appen kräver en långkörande process (optimizern), beständig disk (`data/`) och åtkomst till hemnätverket (Modbus).
+
+### Nå sidan utifrån — rekommenderade sätt
+
+**Tailscale (enklast, privat):**
+1. Installera [Tailscale](https://tailscale.com) på servern och din mobil/dator
+2. Öppna `http://<tailscale-ip>:3000` — klart. Ingenting exponeras publikt.
+
+**Cloudflare Tunnel (publik HTTPS-adress):**
+```bash
+brew install cloudflared        # eller apt install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create solvakt
+cloudflared tunnel route dns solvakt solvakt.dindomän.se
+cloudflared tunnel run --url http://localhost:3000 solvakt
+```
+Ger `https://solvakt.dindomän.se` utan portöppning i routern. Lösenordsskyddet i appen krävs fortfarande för inloggning.
+
+### Autostart (macOS-exempel med launchd)
+```bash
+npm install && npm run build:web
+# skapa ~/Library/LaunchAgents/se.solvakt.plist som kör: node server/index.js
+```
+På Linux: skapa en systemd-tjänst med `ExecStart=node server/index.js` och `Restart=always`.
