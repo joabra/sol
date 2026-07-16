@@ -42,6 +42,11 @@ const DEFAULTS = {
     model: 'qwen3.5:4b',
     autoControl: false,          // låt AI:n fatta styrbesluten (ersätter regelmotorn)
   },
+  // Väder (Open-Meteo) — auto-detekteras från anläggningens koordinater om tomt
+  weather: {
+    lat: null,
+    lon: null,
+  },
   // Optimering
   optimizer: {
     enabled: false,

@@ -4,6 +4,7 @@ import EnergyFlow from '../components/EnergyFlow.jsx';
 import PriceChart from '../components/PriceChart.jsx';
 import HistoryChart from '../components/HistoryChart.jsx';
 import TibberCard from '../components/TibberCard.jsx';
+import WeatherCard from '../components/WeatherCard.jsx';
 
 function Stat({ label, value, sub, color }) {
   return (
@@ -20,6 +21,7 @@ export default function Dashboard() {
   const { data: prices } = usePoll(api.prices, 60000);
   const { data: history } = usePoll(api.history, 300000);
   const { data: tibber } = usePoll(api.tibber, 300000);
+  const { data: weather } = usePoll(api.weather, 1800000);
 
   const selfUse =
     rt?.pvTodayWh > 0 ? Math.max(0, 100 - ((rt.exportTodayWh || 0) / rt.pvTodayWh) * 100) : null;
@@ -63,7 +65,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <TibberCard tibber={tibber} />
+      <div className="grid lg:grid-cols-2 gap-6">
+        <WeatherCard weather={weather} />
+        <TibberCard tibber={tibber} />
+      </div>
 
       <div className="card">
         <h2 className="font-bold mb-2">Produktion & förbrukning — senaste 30 dagarna</h2>

@@ -6,6 +6,7 @@ import { getTodayAndTomorrow, currentPrice } from './prices.js';
 import { buyPrice, sellPrice } from './optimizer.js';
 import * as sungrow from './sungrow.js';
 import * as mock from './mock.js';
+import * as weather from './weather.js';
 
 const ANALYSIS_FILE = path.join(DATA_DIR, 'ai-analysis.json');
 
@@ -41,10 +42,11 @@ async function gatherContext() {
   const api = useMock ? mock : sungrow;
   const psId = settings.sungrow.psId || (await api.getPowerStationList())[0]?.ps_id;
 
-  const [rt, priceData, history] = await Promise.all([
+  const [rt, priceData, history, forecast] = await Promise.all([
     api.getRealtime(psId),
     getTodayAndTomorrow(settings.price.zone),
     getRecentHistory(api, psId, useMock),
+    weather.getForecast().catch(() => null),
   ]);
 
   const now = currentPrice([...priceData.today, ...priceData.tomorrow]);
@@ -67,7 +69,27 @@ async function gatherContext() {
       return { hour, spot: +spot.toFixed(2), buy: +buyPrice(spot, settings.price).toFixed(2), sell: +sellPrice(spot, settings.price).toFixed(2) };
     });
 
-  return { settings, rt, now, futurePrices, history };
+  return { settings, rt, now, futurePrices, history, forecast };
+}
+
+// Kompakt vädertext för prompterna: dagssummor + dagtimmar (06–21) i 3h-steg
+function weatherSection(forecast) {
+  if (!forecast) return '(ingen väderdata)';
+  const daily = forecast.daily
+    .map((d) => `${d.date}: instrålning ${(d.radiationWhm2 / 1000).toFixed(1)} kWh/m², moln ${d.avgCloudPct} %`)
+    .join('\n');
+  const hours = forecast.hours
+    .filter((h, i) => {
+      const hr = new Date(h.time).getHours();
+      return hr >= 6 && hr <= 21 && i % 3 === 0;
+    })
+    .slice(0, 12)
+    .map((h) => {
+      const t = new Date(h.time).toLocaleString('sv-SE', { weekday: 'short', hour: '2-digit' });
+      return `${t}: sol ${h.radiationWm2} W/m², moln ${h.cloudPct} %, ${h.tempC}°C${h.precipMm > 0 ? `, regn ${h.precipMm} mm` : ''}`;
+    })
+    .join('\n');
+  return `Per dag:\n${daily}\nDagtimmar framåt:\n${hours}`;
 }
 
 async function getRecentHistory(api, psId, useMock) {
@@ -100,7 +122,7 @@ async function getRecentHistory(api, psId, useMock) {
 }
 
 function buildPrompt(ctx) {
-  const { settings, rt, now, futurePrices, history } = ctx;
+  const { settings, rt, now, futurePrices, history, forecast } = ctx;
   const o = settings.optimizer;
   const priceTable = futurePrices.map((p) => `${p.hour}: spot ${p.spot} | köp ${p.buy} | sälj ${p.sell}`).join('\n');
   const histTable = history.map((d) => `${d.date}: sol ${d.pvKwh ?? '?'} kWh, import ${d.importKwh ?? '?'} kWh, export ${d.exportKwh ?? '?'} kWh`).join('\n');
@@ -120,6 +142,9 @@ ${priceTable}
 
 SENASTE 7 DAGARNA:
 ${histTable || '(ingen historik)'}
+
+VÄDERPROGNOS (påverkar solproduktionen — hög instrålning & lite moln = mycket sol):
+${weatherSection(forecast)}
 
 FÖRUTSÄTTNINGAR:
 - Batterislitage (cykelkostnad): ${o.cycleCostSekPerKwh} kr/kWh — batteriet ska bara cyklas om pris-skillnaden överstiger detta + ${o.minArbitrageMarginSek} kr marginal
@@ -187,7 +212,7 @@ export function getLastAnalysis() {
 
 // --- Automatiskt styrbeslut (strikt JSON) ---
 function buildDecisionPrompt(ctx) {
-  const { settings, rt, now, futurePrices, history } = ctx;
+  const { settings, rt, now, futurePrices, history, forecast } = ctx;
   const o = settings.optimizer;
   const priceTable = futurePrices.map((p) => `${p.hour}: spot ${p.spot} | köp ${p.buy} | sälj ${p.sell}`).join('\n');
   const histTable = history.map((d) => `${d.date}: sol ${d.pvKwh ?? '?'} kWh, import ${d.importKwh ?? '?'} kWh, export ${d.exportKwh ?? '?'} kWh`).join('\n');
@@ -203,6 +228,9 @@ ${priceTable}
 
 SENASTE 7 DAGARNA:
 ${histTable || '(ingen historik)'}
+
+VÄDERPROGNOS (mycket sol imorgon = ladda inte fullt från nätet inatt; mulet = större behov av nattladdning):
+${weatherSection(forecast)}
 
 REGLER:
 - "charge" = ladda batteriet från nätet (köp), "discharge" = urladda/exportera (sälj), "idle" = självkonsumtion (standard)

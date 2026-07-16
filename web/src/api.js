@@ -30,6 +30,7 @@ export const api = {
   aiAnalyze: () => fetch('/api/ai/analyze', { method: 'POST' }).then(json),
   aiModels: () => fetch('/api/ai/models').then(json),
   aiTest: () => fetch('/api/ai/test', { method: 'POST' }).then(json),
+  weather: () => fetch('/api/weather').then(json),
   control: (cmd, powerW) =>
     fetch(`/api/control/${cmd}`, {
       method: 'POST',

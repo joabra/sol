@@ -11,6 +11,7 @@ import * as control from './lib/control.js';
 import * as auth from './lib/auth.js';
 import * as optimizer from './lib/optimizer.js';
 import * as ai from './lib/ai.js';
+import * as weather from './lib/weather.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -226,6 +227,13 @@ app.post('/api/control/:cmd(charge|discharge|stop)', wrap(async (req, res) => {
   const r = cmd === 'charge' ? await control.charge(powerW) : cmd === 'discharge' ? await control.discharge(powerW) : await control.stop();
   optimizer.setCurrentMode(cmd === 'charge' ? 'charging' : cmd === 'discharge' ? 'discharging' : 'self-consumption');
   res.json({ ok: true, cmd, powerW, via: r.via, mock: r.via === 'mock', result: r.result });
+}));
+
+// --- Väderprognos ---
+app.get('/api/weather', wrap(async (req, res) => {
+  const f = await weather.getForecast();
+  if (!f) return res.status(424).json({ error: 'NOT_CONFIGURED' });
+  res.json(f);
 }));
 
 // --- AI-rådgivare (lokal Ollama) ---
