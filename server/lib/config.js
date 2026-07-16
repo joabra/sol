@@ -40,6 +40,7 @@ const DEFAULTS = {
   ai: {
     ollamaUrl: '',               // t.ex. http://192.168.1.9:11434
     model: 'qwen3.5:4b',
+    autoControl: false,          // låt AI:n fatta styrbesluten (ersätter regelmotorn)
   },
   // Optimering
   optimizer: {

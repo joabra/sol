@@ -184,3 +184,73 @@ export function getLastAnalysis() {
     return null;
   }
 }
+
+// --- Automatiskt styrbeslut (strikt JSON) ---
+function buildDecisionPrompt(ctx) {
+  const { settings, rt, now, futurePrices, history } = ctx;
+  const o = settings.optimizer;
+  const priceTable = futurePrices.map((p) => `${p.hour}: spot ${p.spot} | köp ${p.buy} | sälj ${p.sell}`).join('\n');
+  const histTable = history.map((d) => `${d.date}: sol ${d.pvKwh ?? '?'} kWh, import ${d.importKwh ?? '?'} kWh, export ${d.exportKwh ?? '?'} kWh`).join('\n');
+
+  return `Du styr ett hembatteri (Sungrow, ${o.chargePowerW / 1000} kW max) i Sverige. Fatta beslutet för NÄSTA ${o.intervalMinutes} MINUTER.
+
+NULÄGE (${new Date().toLocaleString('sv-SE')}):
+- Batteri: ${rt.batterySocPct?.toFixed(0) ?? '?'} % SOC (tillåtet ${o.minSocPercent}–${o.maxSocPercent} %)
+- Sol: ${rt.pvPowerW ?? '?'} W | Hus: ${rt.loadPowerW ?? '?'} W | Spot nu: ${now ? now.sekPerKwh.toFixed(2) : '?'} kr/kWh
+
+PRISER FRAMÅT (kr/kWh):
+${priceTable}
+
+SENASTE 7 DAGARNA:
+${histTable || '(ingen historik)'}
+
+REGLER:
+- "charge" = ladda batteriet från nätet (köp), "discharge" = urladda/exportera (sälj), "idle" = självkonsumtion (standard)
+- Cykla ENDAST batteriet om prisskillnaden överstiger cykelkostnad ${o.cycleCostSekPerKwh} kr/kWh + marginal ${o.minArbitrageMarginSek} kr/kWh
+- Ladda inte över ${o.maxSocPercent} %, urladda inte under ${o.minSocPercent} %
+- Vid osäkerhet: välj "idle"
+
+Svara ENDAST med JSON: {"action":"charge"|"discharge"|"idle","powerW":<antal watt>,"reason":"<kort motivering på svenska, max 20 ord>"}`;
+}
+
+export async function decide() {
+  const s = loadSettings();
+  if (!s.ai?.ollamaUrl) throw new Error('NOT_CONFIGURED');
+  const ctx = await gatherContext();
+
+  const res = await fetch(`${baseUrl()}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: s.ai.model,
+      stream: false,
+      think: false,
+      format: 'json',
+      messages: [{ role: 'user', content: buildDecisionPrompt(ctx) }],
+      options: { temperature: 0.1, num_predict: 250 },
+    }),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+  const data = await res.json();
+  let parsed;
+  try {
+    parsed = JSON.parse(data.message?.content || '');
+  } catch {
+    throw new Error('Ogiltigt JSON-svar från modellen');
+  }
+  const action = ['charge', 'discharge', 'idle'].includes(parsed.action) ? parsed.action : null;
+  if (!action) throw new Error(`Ogiltig action från modellen: ${JSON.stringify(parsed.action)}`);
+
+  const o = s.optimizer;
+  const maxW = action === 'charge' ? o.chargePowerW : o.dischargePowerW;
+  const powerW = action === 'idle' ? 0 : Math.min(Math.max(Number(parsed.powerW) || maxW, 1000), maxW);
+
+  return {
+    action,
+    powerW,
+    reason: String(parsed.reason || 'AI-beslut').slice(0, 200),
+    socPct: ctx.rt.batterySocPct,
+    spot: ctx.now?.sekPerKwh ?? null,
+  };
+}

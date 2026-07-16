@@ -123,6 +123,9 @@ export default function Optimizer() {
                 <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${ACTION_STYLE[last.action]}`}>
                   {ACTION_LABEL[last.action] || last.action}
                 </span>
+                {last.via === 'ai' && (
+                  <span className="text-xs font-bold text-violet-400">✦ AI-beslut</span>
+                )}
                 {last.dryRun && (
                   <span className="text-xs text-amber-300">torrkörning — styr inte växelriktaren</span>
                 )}
@@ -208,7 +211,7 @@ export default function Optimizer() {
                     </td>
                     <td className="py-2 pr-4">{e.spot != null ? `${(e.spot * 100).toFixed(0)} öre` : '—'}</td>
                     <td className="py-2 pr-4">{e.socPct != null ? `${e.socPct.toFixed(0)} %` : '—'}</td>
-                    <td className="py-2 text-slate-400 text-xs">{e.error || e.reason}</td>
+                    <td className="py-2 text-slate-400 text-xs">{e.via === 'ai' && <span className="text-violet-400 font-bold">✦ </span>}{e.error || e.reason}</td>
                   </tr>
                 ))}
               </tbody>

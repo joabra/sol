@@ -191,6 +191,18 @@ export default function Settings() {
           <Field label="Ollama-URL" hint="t.ex. http://192.168.1.9:11434" value={s.ai?.ollamaUrl || ''} onChange={str('ai', 'ollamaUrl')} />
           <Field label="Modell" hint="qwen3.5:4b rekommenderas — snabb och bra på svenska" value={s.ai?.model || ''} onChange={str('ai', 'model')} />
         </div>
+        <label className="flex items-center gap-3 mt-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={s.ai?.autoControl === true}
+            onChange={(e) => set('ai', 'autoControl', e.target.checked)}
+            className="w-4 h-4 accent-violet-400"
+          />
+          <span className="text-sm">
+            Låt AI:n fatta styrbesluten automatiskt (ersätter regelmotorn vid varje optimeringskörning).
+            SOC-gränserna gäller alltid som spärr, och regelmotorn tar över om AI:n inte svarar.
+          </span>
+        </label>
         <div className="mt-4 flex items-center gap-3">
           <button className="btn-ghost" onClick={testAi} disabled={busy}>Testa Ollama</button>
           {aiResult && <span className="text-sm text-slate-300">{aiResult}</span>}

@@ -84,13 +84,13 @@ export function decide({ spot, allPrices, futurePrices, socPct, settings }) {
   return { action: 'idle', reason: 'Normalpris — självkonsumtion', ...info };
 }
 
-async function applyAction(action, settings) {
+async function applyAction(action, settings, powerW) {
   const o = settings.optimizer;
   if (o.dryRun) return 'dry-run';
   const r = action === 'charge'
-    ? await control.charge(o.chargePowerW)
+    ? await control.charge(powerW || o.chargePowerW)
     : action === 'discharge'
-      ? await control.discharge(o.dischargePowerW)
+      ? await control.discharge(powerW || o.dischargePowerW)
       : await control.stop();
   return `applied (${r.via})`;
 }
@@ -113,13 +113,13 @@ export async function runOnce() {
     const socPct = rt.batterySocPct ?? 50;
     const future = all.filter((x) => Date.parse(x.start) > Date.now());
 
-    const decision = decide({ spot: now.sekPerKwh, allPrices: today, futurePrices: future, socPct, settings });
+    const decision = await makeDecision({ now, today, future, socPct, settings });
 
     // Skicka bara kommandon vid lägesändring
     const targetMode = decision.action === 'charge' ? 'charging' : decision.action === 'discharge' ? 'discharging' : 'self-consumption';
     let applied = 'no-change';
     if (targetMode !== state.currentMode) {
-      applied = await applyAction(decision.action, settings);
+      applied = await applyAction(decision.action, settings, decision.powerW);
       // I torrkörning styrs inget — lägesminnet ska spegla växelriktarens verkliga läge
       if (applied !== 'dry-run') {
         state.currentMode = targetMode;
@@ -135,6 +135,34 @@ export async function runOnce() {
     log({ time: state.lastRun, error: err.message });
     throw err;
   }
+}
+
+// AI-läge: låt Ollama fatta beslutet, med hårda säkerhetsspärrar och
+// automatisk fallback till regelmotorn om AI:n fallerar eller svarar ogiltigt.
+async function makeDecision({ now, today, future, socPct, settings }) {
+  const o = settings.optimizer;
+  if (settings.ai?.autoControl && settings.ai?.ollamaUrl) {
+    try {
+      const ai = await import('./ai.js');
+      const d = await ai.decide();
+      // Säkerhetsspärrar — AI:n får aldrig bryta SOC-gränserna
+      if (d.action === 'charge' && socPct >= o.maxSocPercent) {
+        d.action = 'idle';
+        d.reason += ` [spärr: SOC ${socPct.toFixed(0)} % ≥ maxgräns ${o.maxSocPercent} %]`;
+      }
+      if (d.action === 'discharge' && socPct <= o.minSocPercent) {
+        d.action = 'idle';
+        d.reason += ` [spärr: SOC ${socPct.toFixed(0)} % ≤ golv ${o.minSocPercent} %]`;
+      }
+      return { ...d, spot: now.sekPerKwh, socPct, via: 'ai' };
+    } catch (err) {
+      const fallback = decide({ spot: now.sekPerKwh, allPrices: today, futurePrices: future, socPct, settings });
+      fallback.via = 'rules';
+      fallback.reason += ` (AI otillgänglig: ${err.message} — regelmotorn tog beslutet)`;
+      return fallback;
+    }
+  }
+  return { ...decide({ spot: now.sekPerKwh, allPrices: today, futurePrices: future, socPct, settings }), via: 'rules' };
 }
 
 export function start() {
