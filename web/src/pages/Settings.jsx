@@ -19,6 +19,7 @@ export default function Settings() {
   const [modbusResult, setModbusResult] = useState(null);
   const [aiResult, setAiResult] = useState(null);
   const [notifyResult, setNotifyResult] = useState(null);
+  const [evResult, setEvResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -88,6 +89,20 @@ export default function Settings() {
       setNotifyResult(r.ok ? '✓ Testnotis skickad!' : `✗ ${r.error}`);
     } catch (e) {
       setNotifyResult(`✗ ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testEv = async () => {
+    setBusy(true);
+    setEvResult(null);
+    try {
+      await api.saveSettings(s);
+      const r = await api.evTest();
+      setEvResult(r.ok ? (r.car?.asleep ? `✓ Ansluten! ${r.car.name} sover just nu` : `✓ Ansluten! ${r.car.name}: ${r.car.socPct} % SOC`) : `✗ ${r.error}`);
+    } catch (e) {
+      setEvResult(`✗ ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -340,6 +355,37 @@ export default function Settings() {
         <div className="mt-4 flex items-center gap-3">
           <button className="btn-ghost" disabled={busy} onClick={testNotify}>Skicka testnotis</button>
           {notifyResult && <span className="text-sm text-slate-300">{notifyResult}</span>}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-bold mb-4">Elbil (Tesla)</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Skyddar hembatteriet från att urladdas in i bilen och räknar ut billigaste laddfönstret.
+          Fungerar även utan API (via last-tröskeln). Med refresh token (hämtas med appen
+          ”Auth for Tesla”) visas dessutom bilens laddstatus.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Tesla refresh token (valfritt)" type="password" value={s.ev?.teslaRefreshToken ?? ''} onChange={str('ev', 'teslaRefreshToken')} />
+          <Field label="Last-tröskel för laddning (W)" hint="Last över detta tolkas som elbilsladdning" type="number" step="500" value={s.ev?.chargeThresholdW ?? 5000} onChange={num('ev', 'chargeThresholdW')} />
+          <Field label="Bilens batteri (kWh)" type="number" value={s.ev?.batteryKwh ?? 75} onChange={num('ev', 'batteryKwh')} />
+          <Field label="Laddboxens effekt (W)" type="number" step="1000" value={s.ev?.chargerPowerW ?? 11000} onChange={num('ev', 'chargerPowerW')} />
+          <Field label="Laddmål (%)" type="number" min="50" max="100" value={s.ev?.targetSocPct ?? 80} onChange={num('ev', 'targetSocPct')} />
+        </div>
+        <label className="flex items-center gap-3 mt-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={s.ev?.guardEnabled ?? true}
+            onChange={(e) => set('ev', 'guardEnabled', e.target.checked)}
+            className="w-4 h-4 accent-amber-400"
+          />
+          <span className="text-sm">
+            <strong>Elbilsskydd</strong> — urladda aldrig hembatteriet medan bilen laddar
+          </span>
+        </label>
+        <div className="mt-4 flex items-center gap-3">
+          <button className="btn-ghost" disabled={busy} onClick={testEv}>Testa Tesla-anslutning</button>
+          {evResult && <span className="text-sm text-slate-300">{evResult}</span>}
         </div>
       </div>
 

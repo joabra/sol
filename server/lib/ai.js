@@ -69,7 +69,20 @@ async function gatherContext() {
       return { hour, spot: +spot.toFixed(2), buy: +buyPrice(spot, settings.price).toFixed(2), sell: +sellPrice(spot, settings.price).toFixed(2) };
     });
 
-  return { settings, rt, now, futurePrices, history, forecast, energyForecast: await getEnergyForecast() };
+  return { settings, rt, now, futurePrices, history, forecast, energyForecast: await getEnergyForecast(), ev: await getEvContext(rt) };
+}
+
+// Elbilskontext: laddar bilen nu? Var är billigaste laddfönstret?
+async function getEvContext(rt) {
+  try {
+    const tesla = await import('./tesla.js');
+    const evplan = await import('./evplan.js');
+    const chg = await tesla.isChargingNow(rt);
+    const plan = await evplan.getChargePlan().catch(() => null);
+    return { charging: chg.charging, source: chg.source, car: chg.st || null, plan };
+  } catch {
+    return null;
+  }
 }
 
 // Kalibrerade prognoser i kWh (sol per dag + förbrukning per timme) — mycket
@@ -116,6 +129,15 @@ function energyForecastSection(ef) {
     .join('\n');
   const load = (ef.loadNext24 || []).map((x) => `${x.hour}: ~${x.kwh} kWh/h`).join(', ');
   return `${solar}\nFörbrukningsprognos (källa: ${ef.loadSource}): ${load}`;
+}
+
+function evSection(ev) {
+  if (!ev) return '';
+  const lines = ['\nELBIL (Tesla, laddas hemma):'];
+  lines.push(`- Laddar just nu: ${ev.charging ? 'JA — hembatteriet får INTE urladdas' : 'nej'} (${ev.source})`);
+  if (ev.car && !ev.car.asleep) lines.push(`- Bilens SOC: ${ev.car.socPct} % (mål ${ev.car.targetSocPct} %)`);
+  if (ev.plan) lines.push(`- Billigaste laddfönster: ${ev.plan.window.from.slice(11, 16)}–${ev.plan.window.to.slice(11, 16)} (${ev.plan.hoursNeeded} h à ${ev.plan.window.avgBuySek} kr/kWh, ~${ev.plan.neededKwh} kWh)`);
+  return lines.join('\n') + '\n';
 }
 
 async function getRecentHistory(api, psId, useMock) {
@@ -174,7 +196,7 @@ ${weatherSection(forecast)}
 
 PROGNOSER (kalibrerade mot anläggningens historik):
 ${energyForecastSection(energyForecast)}
-
+${evSection(ctx.ev)}
 FÖRUTSÄTTNINGAR:
 - Batterislitage (cykelkostnad): ${o.cycleCostSekPerKwh} kr/kWh — batteriet ska bara cyklas om pris-skillnaden överstiger detta + ${o.minArbitrageMarginSek} kr marginal
 - SOC-gränser: ${o.minSocPercent}–${o.maxSocPercent} %
@@ -263,7 +285,7 @@ ${weatherSection(forecast)}
 
 PROGNOSER (kWh, kalibrerade):
 ${energyForecastSection(energyForecast)}
-
+${evSection(ctx.ev)}
 REGLER:
 - "charge" = ladda batteriet från nätet (köp), "discharge" = urladda/exportera (sälj), "idle" = självkonsumtion (standard)
 - Cykla ENDAST batteriet om prisskillnaden överstiger cykelkostnad ${o.cycleCostSekPerKwh} kr/kWh + marginal ${o.minArbitrageMarginSek} kr/kWh

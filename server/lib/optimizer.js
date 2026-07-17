@@ -197,27 +197,45 @@ async function makeDecision({ now, today, future, socPct, settings, rt }) {
     return { action: 'idle', reason: `Negativt spotpris (${spot.toFixed(2)} kr/kWh) men batteriet är fullt — självkonsumtion`, spot, socPct, via: 'override' };
   }
 
-  // 3. Effekttoppskapning: husets last över tröskel → täck med batteriet
+  // 3. Elbilsskydd: urladda inte hembatteriet (12,8 kWh) in i bilen (60+ kWh)
+  const ev = settings.ev || {};
+  let evCharging = null;
+  if (ev.guardEnabled) {
+    try {
+      const tesla = await import('./tesla.js');
+      evCharging = await tesla.isChargingNow(rt);
+    } catch {}
+  }
+  const guardEv = (d) => {
+    if (evCharging?.charging && d.action === 'discharge') {
+      return { ...d, action: 'idle', reason: `🚗 Elbilen laddar (${evCharging.source}) — hembatteriet urladdas inte in i bilen. (${d.reason})`, via: 'override' };
+    }
+    return d;
+  };
+
+  // 3.5 Effekttoppskapning: husets last över tröskel → täck med batteriet
+  // (hoppas över när elbilen laddar — batteriet ska inte kapa bilens laddning)
   const ps = settings.peakShave || {};
-  if (ps.enabled && rt?.loadPowerW > ps.thresholdW && socPct > o.minSocPercent) {
+  if (ps.enabled && !evCharging?.charging && rt?.loadPowerW > ps.thresholdW && socPct > o.minSocPercent) {
     const powerW = Math.min(o.dischargePowerW, Math.round(rt.loadPowerW - ps.thresholdW + 500));
     return { action: 'discharge', powerW, reason: `Effekttopp: husets last ${(rt.loadPowerW / 1000).toFixed(1)} kW > tröskel ${(ps.thresholdW / 1000).toFixed(1)} kW — batteriet kapar toppen`, spot, socPct, via: 'override' };
   }
 
   // 4. Vald strategi
   const strategy = o.strategy || 'plan';
+
   if (strategy === 'plan') {
     try {
       const planner = await import('./planner.js');
       const d = await planner.decideNow(socPct);
       if (d.action === 'charge' && socPct >= o.maxSocPercent) { d.action = 'idle'; d.reason += ' [spärr: SOC vid maxgräns]'; }
       if (d.action === 'discharge' && socPct <= o.minSocPercent) { d.action = 'idle'; d.reason += ' [spärr: SOC vid golv]'; }
-      return { ...d, spot, socPct };
+      return guardEv({ ...d, spot, socPct });
     } catch (err) {
       const fallback = decide({ spot, allPrices: today, futurePrices: future, socPct, settings });
       fallback.via = 'rules';
       fallback.reason += ` (planerare otillgänglig: ${err.message})`;
-      return fallback;
+      return guardEv(fallback);
     }
   }
 
@@ -234,16 +252,16 @@ async function makeDecision({ now, today, future, socPct, settings, rt }) {
         d.action = 'idle';
         d.reason += ` [spärr: SOC ${socPct.toFixed(0)} % ≤ golv ${o.minSocPercent} %]`;
       }
-      return { ...d, spot, socPct, via: 'ai' };
+      return guardEv({ ...d, spot, socPct, via: 'ai' });
     } catch (err) {
       const fallback = decide({ spot, allPrices: today, futurePrices: future, socPct, settings });
       fallback.via = 'rules';
       fallback.reason += ` (AI otillgänglig: ${err.message} — regelmotorn tog beslutet)`;
-      return fallback;
+      return guardEv(fallback);
     }
   }
 
-  return { ...decide({ spot, allPrices: today, futurePrices: future, socPct, settings }), via: 'rules' };
+  return guardEv({ ...decide({ spot, allPrices: today, futurePrices: future, socPct, settings }), via: 'rules' });
 }
 
 export function start() {

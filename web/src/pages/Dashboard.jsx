@@ -5,6 +5,7 @@ import PriceChart from '../components/PriceChart.jsx';
 import HistoryChart from '../components/HistoryChart.jsx';
 import TibberCard from '../components/TibberCard.jsx';
 import WeatherCard from '../components/WeatherCard.jsx';
+import TeslaCard from '../components/TeslaCard.jsx';
 
 function Stat({ label, value, sub, color }) {
   return (
@@ -69,6 +70,8 @@ export default function Dashboard() {
         <WeatherCard weather={weather} />
         <TibberCard tibber={tibber} />
       </div>
+
+      <TeslaCard />
 
       <div className="card">
         <h2 className="font-bold mb-2">Produktion & förbrukning — senaste 30 dagarna</h2>

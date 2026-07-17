@@ -16,6 +16,8 @@ import * as planner from './lib/planner.js';
 import * as ledger from './lib/ledger.js';
 import * as notify from './lib/notify.js';
 import * as forecast from './lib/forecast.js';
+import * as tesla from './lib/tesla.js';
+import * as evplan from './lib/evplan.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -194,6 +196,7 @@ app.put('/api/settings', (req, res) => {
   if (patch.sungrow?.secretKey?.includes('•')) delete patch.sungrow.secretKey;
   if (patch.tibber?.token?.includes('•')) delete patch.tibber.token;
   if (patch.notify?.telegramBotToken?.includes('•')) delete patch.notify.telegramBotToken;
+  if (patch.ev?.teslaRefreshToken?.includes('•')) delete patch.ev.teslaRefreshToken;
   if (patch.tibber?.token !== undefined) tibber.clearCache();
   const merged = saveSettings(patch);
   if (merged.optimizer.enabled && !optimizer.getState().running) optimizer.start();
@@ -280,6 +283,19 @@ app.get('/api/forecast', wrap(async (req, res) => {
     forecast.getLoadProfile().catch(() => null),
   ]);
   res.json({ solar, profile });
+}));
+
+// --- Elbil (Tesla) ---
+app.get('/api/ev', wrap(async (req, res) => {
+  const plan = await evplan.getChargePlan().catch(() => null);
+  res.json({ configured: tesla.isConfigured(), plan });
+}));
+
+app.post('/api/ev/test', wrap(async (req, res) => {
+  if (!tesla.isConfigured()) return res.status(400).json({ ok: false, error: 'Tesla refresh token saknas' });
+  tesla.clearCache();
+  const st = await tesla.getStatus({ force: true });
+  res.json({ ok: true, car: st });
 }));
 
 // --- Notiser ---

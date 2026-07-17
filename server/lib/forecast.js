@@ -24,9 +24,15 @@ export async function getLoadProfile() {
           const key = `${d.getDay() === 0 || d.getDay() === 6 ? 'we' : 'wd'}-${d.getHours()}`;
           (buckets[key] ||= []).push(n.consumption);
         }
-        const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+        // Median istället för medel — elbilsladdning (~11 kW enstaka nätter)
+        // ska inte förvränga profilen för normala dygn.
+        const median = (a) => {
+          const s = [...a].sort((x, y) => x - y);
+          const m = Math.floor(s.length / 2);
+          return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+        };
         profile = { source: 'tibber', hours: {} };
-        for (const [key, vals] of Object.entries(buckets)) profile.hours[key] = +avg(vals).toFixed(2);
+        for (const [key, vals] of Object.entries(buckets)) profile.hours[key] = +median(vals).toFixed(2);
 
         // Tibber mäter bara nätimport — dagtid täcker solen lasten och timvärdena blir ~0.
         // Skala upp profilen så dygnssumman matchar husets verkliga last (sol − export + import).

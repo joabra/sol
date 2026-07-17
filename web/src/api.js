@@ -34,6 +34,8 @@ export const api = {
   plan: () => fetch('/api/plan').then(json),
   report: () => fetch('/api/report').then(json),
   notifyTest: () => fetch('/api/notify/test', { method: 'POST' }).then(json),
+  ev: () => fetch('/api/ev').then(json),
+  evTest: () => fetch('/api/ev/test', { method: 'POST' }).then(json),
   control: (cmd, powerW) =>
     fetch(`/api/control/${cmd}`, {
       method: 'POST',
