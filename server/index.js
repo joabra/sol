@@ -197,6 +197,7 @@ app.put('/api/settings', (req, res) => {
   if (patch.tibber?.token?.includes('•')) delete patch.tibber.token;
   if (patch.notify?.telegramBotToken?.includes('•')) delete patch.notify.telegramBotToken;
   if (patch.ev?.teslaRefreshToken?.includes('•')) delete patch.ev.teslaRefreshToken;
+  if (patch.ev?.tessieToken?.includes('•')) delete patch.ev.tessieToken;
   if (patch.tibber?.token !== undefined) tibber.clearCache();
   const merged = saveSettings(patch);
   if (merged.optimizer.enabled && !optimizer.getState().running) optimizer.start();
@@ -292,7 +293,7 @@ app.get('/api/ev', wrap(async (req, res) => {
 }));
 
 app.post('/api/ev/test', wrap(async (req, res) => {
-  if (!tesla.isConfigured()) return res.status(400).json({ ok: false, error: 'Tesla refresh token saknas' });
+  if (!tesla.isConfigured()) return res.status(400).json({ ok: false, error: 'Tessie-token eller Tesla refresh token saknas' });
   tesla.clearCache();
   const st = await tesla.getStatus({ force: true });
   res.json({ ok: true, car: st });

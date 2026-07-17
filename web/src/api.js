@@ -1,9 +1,16 @@
-const json = (r) => {
+const json = async (r) => {
   if (r.status === 401) {
     window.location.reload(); // session utgången -> visa login
     throw new Error('Utloggad');
   }
-  if (!r.ok && r.status !== 424) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok && r.status !== 424) {
+    let msg = `HTTP ${r.status}`;
+    try {
+      const body = await r.json();
+      if (body?.error) msg = body.error;
+    } catch {}
+    throw new Error(msg);
+  }
   return r.json();
 };
 

@@ -66,7 +66,8 @@ const DEFAULTS = {
   },
   // Elbil (Tesla) — påverkar prognoser, batteriskydd och laddplanering
   ev: {
-    teslaRefreshToken: '',     // hämtas med t.ex. appen "Auth for Tesla" — lämna tomt för läge utan API
+    tessieToken: '',           // rekommenderas: API-nyckel från tessie.com (Settings → API)
+    teslaRefreshToken: '',     // äldre bilar: Owner API refresh token (nedstängt för de flesta)
     guardEnabled: true,        // hindra hembatteriet från att urladda in i bilen vid laddning
     chargeThresholdW: 5000,    // last över detta tolkas som elbilsladdning (utan API)
     batteryKwh: 75,            // bilens batteristorlek
@@ -128,5 +129,6 @@ export function redactSettings(s) {
   if (clone.tibber?.token) clone.tibber.token = clone.tibber.token.slice(0, 4) + '••••';
   if (clone.notify?.telegramBotToken) clone.notify.telegramBotToken = clone.notify.telegramBotToken.slice(0, 4) + '••••';
   if (clone.ev?.teslaRefreshToken) clone.ev.teslaRefreshToken = clone.ev.teslaRefreshToken.slice(0, 4) + '••••';
+  if (clone.ev?.tessieToken) clone.ev.tessieToken = clone.ev.tessieToken.slice(0, 4) + '••••';
   return clone;
 }

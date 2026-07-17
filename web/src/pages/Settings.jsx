@@ -362,11 +362,13 @@ export default function Settings() {
         <h2 className="font-bold mb-4">Elbil (Tesla)</h2>
         <p className="text-sm text-slate-400 mb-4">
           Skyddar hembatteriet från att urladdas in i bilen och räknar ut billigaste laddfönstret.
-          Fungerar även utan API (via last-tröskeln). Med refresh token (hämtas med appen
-          ”Auth for Tesla”) visas dessutom bilens laddstatus.
+          Fungerar även utan API (via last-tröskeln). För bilstatus rekommenderas en{' '}
+          <a href="https://tessie.com" target="_blank" rel="noreferrer" className="text-sky-400 underline">Tessie</a>-token
+          (Settings → API i Tessie) — Teslas gamla API är nedstängt sedan 2026.
         </p>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Tesla refresh token (valfritt)" type="password" value={s.ev?.teslaRefreshToken ?? ''} onChange={str('ev', 'teslaRefreshToken')} />
+          <Field label="Tessie API-token (rekommenderas)" type="password" value={s.ev?.tessieToken ?? ''} onChange={str('ev', 'tessieToken')} />
+          <Field label="Tesla refresh token (endast äldre bilar)" type="password" value={s.ev?.teslaRefreshToken ?? ''} onChange={str('ev', 'teslaRefreshToken')} />
           <Field label="Last-tröskel för laddning (W)" hint="Last över detta tolkas som elbilsladdning" type="number" step="500" value={s.ev?.chargeThresholdW ?? 5000} onChange={num('ev', 'chargeThresholdW')} />
           <Field label="Bilens batteri (kWh)" type="number" value={s.ev?.batteryKwh ?? 75} onChange={num('ev', 'batteryKwh')} />
           <Field label="Laddboxens effekt (W)" type="number" step="1000" value={s.ev?.chargerPowerW ?? 11000} onChange={num('ev', 'chargerPowerW')} />
