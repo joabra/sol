@@ -18,6 +18,7 @@ export default function Settings() {
   const [tibberResult, setTibberResult] = useState(null);
   const [modbusResult, setModbusResult] = useState(null);
   const [aiResult, setAiResult] = useState(null);
+  const [notifyResult, setNotifyResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -73,6 +74,20 @@ export default function Settings() {
       setTibberResult(r.ok ? `✓ Ansluten som ${r.name}: ${r.homes.map((h) => h.label).join(', ')}` : `✗ ${r.error}`);
     } catch (e) {
       setTibberResult(`✗ ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testNotify = async () => {
+    setBusy(true);
+    setNotifyResult(null);
+    try {
+      await api.saveSettings(s);
+      const r = await api.notifyTest();
+      setNotifyResult(r.ok ? '✓ Testnotis skickad!' : `✗ ${r.error}`);
+    } catch (e) {
+      setNotifyResult(`✗ ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -234,6 +249,18 @@ export default function Settings() {
 
       <div className="card">
         <h2 className="font-bold mb-4">Optimering</h2>
+        <div className="mb-4">
+          <label className="block text-sm text-slate-400 mb-1">Strategi</label>
+          <select
+            value={s.optimizer.strategy || 'plan'}
+            onChange={(e) => set('optimizer', 'strategy', e.target.value)}
+            className="w-full sm:w-72 bg-panel border border-edge rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="plan">Dygnsplan (rekommenderas) — optimerar hela dygnet</option>
+            <option value="ai">AI (Ollama) — beslut per kvart</option>
+            <option value="rules">Regler — P25/P75-trösklar</option>
+          </select>
+        </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Billig-tröskel (percentil)" hint="Ladda när spot ≤ denna percentil av dagens priser" type="number" min="5" max="45" value={s.optimizer.cheapPercentile} onChange={num('optimizer', 'cheapPercentile')} />
           <Field label="Dyr-tröskel (percentil)" hint="Urladda när spot ≥ denna percentil" type="number" min="55" max="95" value={s.optimizer.expensivePercentile} onChange={num('optimizer', 'expensivePercentile')} />
@@ -257,6 +284,63 @@ export default function Settings() {
             verifierat besluten)
           </span>
         </label>
+        <div className="mt-3 space-y-2">
+          {[
+            ['stormPrepare', 'Beredskapsläge', 'ladda batteriet fullt inför storm/snöoväder (byvind ≥ 21 m/s)'],
+            ['negativePriceGuard', 'Negativa priser', 'ladda istället för att exportera när spotpriset är negativt'],
+            ['adaptiveSoc', 'Adaptiv batterihälsa', 'snävare SOC-fönster (30–80 %) när prisspreadar är små — skonar batteriet'],
+          ].map(([key, label, hint]) => (
+            <label key={key} className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!s.optimizer[key]}
+                onChange={(e) => set('optimizer', key, e.target.checked)}
+                className="w-4 h-4 accent-amber-400"
+              />
+              <span className="text-sm"><strong>{label}</strong> — {hint}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-bold mb-4">Batteri & effekttoppar</h2>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Batterikapacitet (kWh)" hint="SBR128 = 12,8 kWh" type="number" step="0.1" value={s.battery?.capacityKwh ?? 12.8} onChange={num('battery', 'capacityKwh')} />
+          <Field label="Verkningsgrad tur & retur (%)" type="number" min="70" max="100" value={s.battery?.efficiencyPct ?? 92} onChange={num('battery', 'efficiencyPct')} />
+          <Field label="Effekttopp-tröskel (W)" hint="Urladda batteriet när husets last överstiger detta" type="number" step="500" value={s.peakShave?.thresholdW ?? 6000} onChange={num('peakShave', 'thresholdW')} />
+        </div>
+        <label className="flex items-center gap-3 mt-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!s.peakShave?.enabled}
+            onChange={(e) => set('peakShave', 'enabled', e.target.checked)}
+            className="w-4 h-4 accent-amber-400"
+          />
+          <span className="text-sm">
+            <strong>Effekttoppskapning</strong> — kapa förbrukningstoppar med batteriet (sänker Vattenfalls
+            effektavgift). Månadens toppar syns på Avkastning-sidan.
+          </span>
+        </label>
+      </div>
+
+      <div className="card">
+        <h2 className="font-bold mb-4">Notiser</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Push-notiser vid ladd/urladdningsbeslut, fel och negativa priser. Fyll i minst en kanal.
+          Enklast är <a href="https://ntfy.sh" target="_blank" rel="noreferrer" className="text-sky-400 underline">ntfy.sh</a> —
+          välj ett unikt ämnesnamn och prenumerera i appen.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="ntfy-ämne" hint="t.ex. solvakt-joabra-x7k2" value={s.notify?.ntfyTopic ?? ''} onChange={str('notify', 'ntfyTopic')} />
+          <Field label="Discord webhook-URL" value={s.notify?.discordWebhook ?? ''} onChange={str('notify', 'discordWebhook')} />
+          <Field label="Telegram bot-token" value={s.notify?.telegramBotToken ?? ''} onChange={str('notify', 'telegramBotToken')} />
+          <Field label="Telegram chat-ID" value={s.notify?.telegramChatId ?? ''} onChange={str('notify', 'telegramChatId')} />
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button className="btn-ghost" disabled={busy} onClick={testNotify}>Skicka testnotis</button>
+          {notifyResult && <span className="text-sm text-slate-300">{notifyResult}</span>}
+        </div>
       </div>
 
       <div className="card">

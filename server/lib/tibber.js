@@ -106,4 +106,16 @@ export function clearCache() {
   cache = { data: null, at: 0 };
 }
 
+// Timvis förbrukning senaste 7 dygnen — underlag för förbrukningsprognos
+let hourlyCache = { data: null, at: 0 };
+export async function getHourlyConsumption() {
+  if (hourlyCache.data && Date.now() - hourlyCache.at < 60 * 60 * 1000) return hourlyCache.data;
+  const data = await gql(`{
+    viewer { homes { consumption(resolution: HOURLY, last: 168) { nodes { from consumption } } } }
+  }`);
+  const nodes = data.viewer.homes.flatMap((h) => h.consumption?.nodes || []).filter((n) => n.consumption != null);
+  hourlyCache = { data: nodes, at: Date.now() };
+  return nodes;
+}
+
 const round1 = (v) => (v == null ? null : Math.round(v * 100) / 100);

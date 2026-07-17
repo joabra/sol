@@ -47,10 +47,31 @@ const DEFAULTS = {
     lat: null,
     lon: null,
   },
+  // Batteri (för dygnsplanering & avkastningsberäkning)
+  battery: {
+    capacityKwh: 12.8,        // SBR128 = 12.8 kWh
+    efficiencyPct: 92,        // rundturseffektivitet
+  },
+  // Effekttoppskapning — sänker nätbolagets effektavgift
+  peakShave: {
+    enabled: false,
+    thresholdW: 6000,         // urladda när husets last överstiger detta
+  },
+  // Notiser (valfritt — fyll i en eller flera)
+  notify: {
+    ntfyTopic: '',            // t.ex. "solvakt-hemma" -> https://ntfy.sh/solvakt-hemma
+    discordWebhook: '',
+    telegramBotToken: '',
+    telegramChatId: '',
+  },
   // Optimering
   optimizer: {
     enabled: false,
     dryRun: true,                // logga beslut utan att styra växelriktaren
+    strategy: 'plan',            // 'plan' = dygnsplanerare, 'ai' = Ollama-beslut, 'rules' = P25/P75-regler
+    stormPrepare: true,          // ladda fullt inför vädervarning (hårda vindbyar/snöoväder)
+    negativePriceGuard: true,    // ladda istället för att exportera vid negativa spotpriser
+    adaptiveSoc: true,           // krymp SOC-fönstret när prisspreaden är liten (skonar batteriet)
     cheapPercentile: 25,         // ladda under denna percentil
     expensivePercentile: 75,     // urladda/exportera över denna
     cycleCostSekPerKwh: 0.90,    // batterislitage per kWh
@@ -96,5 +117,6 @@ export function redactSettings(s) {
   if (clone.sungrow.password) clone.sungrow.password = '••••••••';
   if (clone.sungrow.secretKey) clone.sungrow.secretKey = clone.sungrow.secretKey.slice(0, 4) + '••••';
   if (clone.tibber?.token) clone.tibber.token = clone.tibber.token.slice(0, 4) + '••••';
+  if (clone.notify?.telegramBotToken) clone.notify.telegramBotToken = clone.notify.telegramBotToken.slice(0, 4) + '••••';
   return clone;
 }

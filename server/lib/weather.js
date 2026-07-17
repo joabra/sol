@@ -32,8 +32,8 @@ export async function getForecast() {
 
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}` +
-    `&hourly=temperature_2m,cloud_cover,shortwave_radiation,precipitation` +
-    `&forecast_days=3&timezone=Europe%2FStockholm`;
+    `&hourly=temperature_2m,cloud_cover,shortwave_radiation,precipitation,wind_gusts_10m,snowfall` +
+    `&forecast_days=3&past_days=7&timezone=Europe%2FStockholm`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
   const raw = await res.json();
@@ -41,16 +41,20 @@ export async function getForecast() {
   const h = raw.hourly;
   const nowMs = Date.now() - 3600e3;
   const hours = [];
+  const pastHours = [];
   for (let i = 0; i < h.time.length; i++) {
     const t = new Date(h.time[i]);
-    if (t.getTime() < nowMs) continue;
-    hours.push({
+    const entry = {
       time: h.time[i],
       tempC: h.temperature_2m[i],
       cloudPct: h.cloud_cover[i],
       radiationWm2: h.shortwave_radiation[i],
       precipMm: h.precipitation[i],
-    });
+      gustMs: h.wind_gusts_10m[i],
+      snowCm: h.snowfall[i],
+    };
+    if (t.getTime() < nowMs) pastHours.push(entry);
+    else hours.push(entry);
   }
 
   // Dagssummering: total instrålning (Wh/m2) som grov produktionsindikator
@@ -68,7 +72,18 @@ export async function getForecast() {
     avgCloudPct: Math.round(d.cloudSum / d.n),
   }));
 
-  const data = { coords, hours: hours.slice(0, 48), daily };
+  const data = { coords, hours: hours.slice(0, 48), pastHours, daily };
   cache = { key, data, at: Date.now() };
   return data;
+}
+
+// Vädervarning: hårda vindbyar (>21 m/s = stormbyar) eller kraftigt snöfall inom 36 h
+export function stormRisk(forecast) {
+  if (!forecast) return null;
+  const soon = forecast.hours.slice(0, 36);
+  const gust = soon.find((x) => x.gustMs >= 21);
+  if (gust) return { type: 'vind', at: gust.time, value: `${Math.round(gust.gustMs)} m/s byvind` };
+  const snow = soon.find((x) => x.snowCm >= 3);
+  if (snow) return { type: 'snö', at: snow.time, value: `${snow.snowCm} cm/h snöfall` };
+  return null;
 }

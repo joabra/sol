@@ -113,7 +113,18 @@ export async function runOnce() {
     const socPct = rt.batterySocPct ?? 50;
     const future = all.filter((x) => Date.parse(x.start) > Date.now());
 
-    const decision = await makeDecision({ now, today, future, socPct, settings });
+    const decision = await makeDecision({ now, today, future, socPct, settings, rt });
+
+    // Avkastningsliggare: logga batteriflöden med aktuella priser
+    try {
+      const ledger = await import('./ledger.js');
+      ledger.record({
+        batteryPowerW: rt.batteryPowerW,
+        gridPowerW: rt.gridPowerW,
+        spot: now.sekPerKwh,
+        intervalMin: o.intervalMinutes,
+      });
+    } catch {}
 
     // Skicka bara kommandon vid lägesändring
     const targetMode = decision.action === 'charge' ? 'charging' : decision.action === 'discharge' ? 'discharging' : 'self-consumption';
@@ -129,19 +140,88 @@ export async function runOnce() {
 
     state.lastDecision = { ...decision, applied, mode: targetMode, dryRun: o.dryRun, mock: api === mock, time: state.lastRun };
     log(state.lastDecision);
+    notifyDecision(state.lastDecision).catch(() => {});
     return state.lastDecision;
   } catch (err) {
     state.lastError = err.message;
     log({ time: state.lastRun, error: err.message });
+    notifyError(err.message).catch(() => {});
     throw err;
   }
 }
 
-// AI-läge: låt Ollama fatta beslutet, med hårda säkerhetsspärrar och
-// automatisk fallback till regelmotorn om AI:n fallerar eller svarar ogiltigt.
-async function makeDecision({ now, today, future, socPct, settings }) {
+async function notifyDecision(d) {
+  const notify = await import('./notify.js');
+  if (!notify.isConfigured()) return;
+  if (d.applied !== 'no-change' && d.applied !== 'dry-run' && d.action !== 'idle') {
+    const label = d.action === 'charge' ? '🔋 Laddar batteriet' : '⚡ Urladdar batteriet';
+    await notify.send(label, `${d.reason}\nSpot: ${d.spot?.toFixed(2)} kr/kWh · SOC: ${d.socPct?.toFixed(0)} % · via ${d.via}`, { key: `mode-${d.action}`, minIntervalMin: 30 });
+  }
+  if (d.spot != null && d.spot < 0) {
+    await notify.send('💰 Negativt elpris', `Spotpriset är ${d.spot.toFixed(2)} kr/kWh — export stoppad, batteriet laddas.`, { key: 'negative-price', minIntervalMin: 180 });
+  }
+}
+
+async function notifyError(msg) {
+  const notify = await import('./notify.js');
+  if (!notify.isConfigured()) return;
+  await notify.send('⚠️ Solvakt-fel', msg, { key: 'error', minIntervalMin: 60 });
+}
+
+// Beslutskedja: hårda överstyrningar (storm, negativa priser, effekttoppar) →
+// vald strategi (dygnsplan / AI / regler) med säkerhetsspärrar och fallback.
+async function makeDecision({ now, today, future, socPct, settings, rt }) {
   const o = settings.optimizer;
-  if (settings.ai?.autoControl && settings.ai?.ollamaUrl) {
+  const spot = now.sekPerKwh;
+
+  // 1. Vädervarning: storm/snöoväder inom 36 h → ladda fullt och håll som reserv
+  if (o.stormPrepare) {
+    try {
+      const weather = await import('./weather.js');
+      const risk = weather.stormRisk(await weather.getForecast());
+      if (risk) {
+        const desc = `${risk.type === 'vind' ? 'storm' : 'snöoväder'} (${risk.value}) väntas ${new Date(risk.at).toLocaleString('sv-SE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+        if (socPct < o.maxSocPercent) {
+          return { action: 'charge', reason: `⛈ Beredskapsläge: ${desc} — laddar batteriet som reserv`, spot, socPct, via: 'override' };
+        }
+        return { action: 'idle', reason: `⛈ Beredskapsläge: ${desc} — batteriet hålls fulladdat som reserv`, spot, socPct, via: 'override' };
+      }
+    } catch {}
+  }
+
+  // 2. Negativa spotpriser: stoppa export, ladda "gratis"
+  if (o.negativePriceGuard && spot < 0) {
+    if (socPct < o.maxSocPercent) {
+      return { action: 'charge', reason: `Negativt spotpris (${spot.toFixed(2)} kr/kWh) — laddar istället för att exportera med förlust`, spot, socPct, via: 'override' };
+    }
+    return { action: 'idle', reason: `Negativt spotpris (${spot.toFixed(2)} kr/kWh) men batteriet är fullt — självkonsumtion`, spot, socPct, via: 'override' };
+  }
+
+  // 3. Effekttoppskapning: husets last över tröskel → täck med batteriet
+  const ps = settings.peakShave || {};
+  if (ps.enabled && rt?.loadPowerW > ps.thresholdW && socPct > o.minSocPercent) {
+    const powerW = Math.min(o.dischargePowerW, Math.round(rt.loadPowerW - ps.thresholdW + 500));
+    return { action: 'discharge', powerW, reason: `Effekttopp: husets last ${(rt.loadPowerW / 1000).toFixed(1)} kW > tröskel ${(ps.thresholdW / 1000).toFixed(1)} kW — batteriet kapar toppen`, spot, socPct, via: 'override' };
+  }
+
+  // 4. Vald strategi
+  const strategy = o.strategy || 'plan';
+  if (strategy === 'plan') {
+    try {
+      const planner = await import('./planner.js');
+      const d = await planner.decideNow(socPct);
+      if (d.action === 'charge' && socPct >= o.maxSocPercent) { d.action = 'idle'; d.reason += ' [spärr: SOC vid maxgräns]'; }
+      if (d.action === 'discharge' && socPct <= o.minSocPercent) { d.action = 'idle'; d.reason += ' [spärr: SOC vid golv]'; }
+      return { ...d, spot, socPct };
+    } catch (err) {
+      const fallback = decide({ spot, allPrices: today, futurePrices: future, socPct, settings });
+      fallback.via = 'rules';
+      fallback.reason += ` (planerare otillgänglig: ${err.message})`;
+      return fallback;
+    }
+  }
+
+  if (strategy === 'ai' && settings.ai?.autoControl && settings.ai?.ollamaUrl) {
     try {
       const ai = await import('./ai.js');
       const d = await ai.decide();
@@ -154,15 +234,16 @@ async function makeDecision({ now, today, future, socPct, settings }) {
         d.action = 'idle';
         d.reason += ` [spärr: SOC ${socPct.toFixed(0)} % ≤ golv ${o.minSocPercent} %]`;
       }
-      return { ...d, spot: now.sekPerKwh, socPct, via: 'ai' };
+      return { ...d, spot, socPct, via: 'ai' };
     } catch (err) {
-      const fallback = decide({ spot: now.sekPerKwh, allPrices: today, futurePrices: future, socPct, settings });
+      const fallback = decide({ spot, allPrices: today, futurePrices: future, socPct, settings });
       fallback.via = 'rules';
       fallback.reason += ` (AI otillgänglig: ${err.message} — regelmotorn tog beslutet)`;
       return fallback;
     }
   }
-  return { ...decide({ spot: now.sekPerKwh, allPrices: today, futurePrices: future, socPct, settings }), via: 'rules' };
+
+  return { ...decide({ spot, allPrices: today, futurePrices: future, socPct, settings }), via: 'rules' };
 }
 
 export function start() {

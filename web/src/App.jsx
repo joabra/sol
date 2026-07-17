@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import Optimizer from './pages/Optimizer.jsx';
+import Report from './pages/Report.jsx';
 import Settings from './pages/Settings.jsx';
 import Login from './pages/Login.jsx';
 import { usePoll } from './hooks.js';
@@ -9,6 +10,7 @@ import { api } from './api.js';
 const TABS = [
   { id: 'dashboard', label: 'Översikt', icon: '☀️' },
   { id: 'optimizer', label: 'Optimering', icon: '⚡' },
+  { id: 'report', label: 'Avkastning', icon: '💰' },
   { id: 'settings', label: 'Inställningar', icon: '⚙️' },
 ];
 
@@ -95,6 +97,7 @@ function MainApp({ tab, setTab, onLogout, needsSetup }) {
 
       {tab === 'dashboard' && <Dashboard />}
       {tab === 'optimizer' && <Optimizer />}
+      {tab === 'report' && <Report />}
       {tab === 'settings' && <Settings />}
     </div>
   );

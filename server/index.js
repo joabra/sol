@@ -12,6 +12,10 @@ import * as auth from './lib/auth.js';
 import * as optimizer from './lib/optimizer.js';
 import * as ai from './lib/ai.js';
 import * as weather from './lib/weather.js';
+import * as planner from './lib/planner.js';
+import * as ledger from './lib/ledger.js';
+import * as notify from './lib/notify.js';
+import * as forecast from './lib/forecast.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -189,6 +193,7 @@ app.put('/api/settings', (req, res) => {
   if (patch.sungrow?.password?.includes('•')) delete patch.sungrow.password;
   if (patch.sungrow?.secretKey?.includes('•')) delete patch.sungrow.secretKey;
   if (patch.tibber?.token?.includes('•')) delete patch.tibber.token;
+  if (patch.notify?.telegramBotToken?.includes('•')) delete patch.notify.telegramBotToken;
   if (patch.tibber?.token !== undefined) tibber.clearCache();
   const merged = saveSettings(patch);
   if (merged.optimizer.enabled && !optimizer.getState().running) optimizer.start();
@@ -252,6 +257,36 @@ app.get('/api/ai/models', wrap(async (req, res) => {
 app.post('/api/ai/test', wrap(async (req, res) => {
   if (!ai.isConfigured()) return res.status(400).json({ ok: false, error: 'Ollama-URL saknas' });
   res.json(await ai.test());
+}));
+
+// --- Dygnsplan ---
+app.get('/api/plan', wrap(async (req, res) => {
+  const api = sungrow.isConfigured() ? sungrow : mock;
+  const settings = loadSettings();
+  const psId = settings.sungrow.psId || (await api.getPowerStationList())[0]?.ps_id;
+  const rt = await api.getRealtime(psId).catch(() => ({}));
+  res.json(await planner.getSchedule(rt.batterySocPct ?? 50));
+}));
+
+// --- Avkastningsrapport ---
+app.get('/api/report', (req, res) => {
+  res.json(ledger.getReport());
+});
+
+// --- Prognoser (sol i kWh + lastprofil) ---
+app.get('/api/forecast', wrap(async (req, res) => {
+  const [solar, profile] = await Promise.all([
+    forecast.getSolarForecast().catch(() => null),
+    forecast.getLoadProfile().catch(() => null),
+  ]);
+  res.json({ solar, profile });
+}));
+
+// --- Notiser ---
+app.post('/api/notify/test', wrap(async (req, res) => {
+  if (!notify.isConfigured()) return res.status(400).json({ ok: false, error: 'Ingen notiskanal konfigurerad' });
+  const r = await notify.send('Solvakt', 'Testnotis — notiserna fungerar! ✅');
+  res.json({ ok: true, result: r });
 }));
 
 // --- Modbus (WiNet-S) ---

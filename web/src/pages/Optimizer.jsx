@@ -65,6 +65,87 @@ const ACTION_STYLE = {
   idle: 'text-slate-400 border-edge bg-panel',
 };
 const ACTION_LABEL = { charge: 'LADDA', discharge: 'EXPORTERA', idle: 'SJÄLVKONSUMTION' };
+const VIA_BADGE = {
+  ai: ['✦ AI-beslut', 'text-violet-400'],
+  plan: ['◫ Dygnsplan', 'text-sky-400'],
+  override: ['⚡ Överstyrning', 'text-amber-400'],
+};
+
+const BAR_COLOR = { charge: 'bg-batt', discharge: 'bg-solar', idle: 'bg-slate-700/60' };
+
+function PlanTimeline() {
+  const { data: plan, error } = usePoll(api.plan, 5 * 60000);
+  if (error || !plan?.schedule?.length) return null;
+
+  const slots = plan.schedule.slice(0, 96); // 24 h
+  const maxSpot = Math.max(...slots.map((s) => s.spot), 0.01);
+  const nowIdx = slots.findIndex((s, i) => {
+    const t0 = Date.parse(s.start);
+    const t1 = i + 1 < slots.length ? Date.parse(slots[i + 1].start) : t0 + 900e3;
+    return Date.now() >= t0 && Date.now() < t1;
+  });
+
+  // Blocksammanfattning
+  const blocks = [];
+  for (const s of slots) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.action === s.action) { last.to = s.start; last.n += 1; }
+    else blocks.push({ action: s.action, from: s.start, to: s.start, n: 1 });
+  }
+  const fmtT = (iso) => new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+  const active = blocks.filter((b) => b.action !== 'idle');
+
+  return (
+    <div className="card border border-sky-500/20">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="font-bold flex items-center gap-2">
+          <span className="text-sky-400">◫</span> Dygnsplan
+          <span className="text-xs font-normal text-slate-500">
+            SOC-fönster {plan.minSoc}–{plan.maxSoc} %
+          </span>
+        </h2>
+      </div>
+      <p className="text-xs text-slate-500 mb-4">
+        Optimerat schema för kommande dygn — staplarna visar spotpriset, färgen visar planerad åtgärd.
+      </p>
+
+      <div className="flex items-end gap-px h-24 mb-1">
+        {slots.map((s, i) => (
+          <div
+            key={s.start}
+            title={`${fmtT(s.start)} · ${ACTION_LABEL[s.action]} · ${(s.spot * 100).toFixed(0)} öre · SOC ${s.socPct} %`}
+            className={`flex-1 rounded-t-sm ${BAR_COLOR[s.action]} ${i === nowIdx ? 'ring-2 ring-white/70' : ''}`}
+            style={{ height: `${Math.max(6, (s.spot / maxSpot) * 100)}%`, opacity: s.action === 'idle' ? 0.55 : 1 }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-slate-500 mb-4">
+        <span>{fmtT(slots[0].start)}</span>
+        <span>{fmtT(slots[Math.floor(slots.length / 2)].start)}</span>
+        <span>{fmtT(slots[slots.length - 1].start)}</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2.5 h-2.5 rounded-sm bg-batt inline-block" /> Ladda</span>
+        <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2.5 h-2.5 rounded-sm bg-solar inline-block" /> Urladda</span>
+        <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2.5 h-2.5 rounded-sm bg-slate-700/60 inline-block" /> Självkonsumtion</span>
+      </div>
+
+      {active.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {active.slice(0, 6).map((b) => (
+            <p key={b.from} className="text-sm text-slate-300">
+              <span className={`font-bold ${b.action === 'charge' ? 'text-batt' : 'text-solar'}`}>
+                {b.action === 'charge' ? '▲ Ladda' : '▼ Urladda'}
+              </span>{' '}
+              {fmtT(b.from)}–{fmtT(new Date(Date.parse(b.to) + 900e3).toISOString())}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Optimizer() {
   const { data: opt } = usePoll(api.optimizer, 10000);
@@ -112,9 +193,8 @@ export default function Optimizer() {
             </button>
           </div>
           <p className="text-sm text-slate-400 mb-4">
-            Laddar batteriet när spotpriset är lågt och exporterar/urladdar när det är högt — men bara när
-            marginalen täcker batterislitaget. Beslut fattas var {status?.optimizer ? '15:e' : '…'} minut baserat
-            på dagens prisprofil (P25/P75-trösklar).
+            Styr batteriet enligt vald strategi (dygnsplan, AI eller regler) med automatiska överstyrningar
+            för storm, negativa priser och effekttoppar. Beslut fattas var 15:e minut.
           </p>
 
           {last ? (
@@ -123,8 +203,8 @@ export default function Optimizer() {
                 <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${ACTION_STYLE[last.action]}`}>
                   {ACTION_LABEL[last.action] || last.action}
                 </span>
-                {last.via === 'ai' && (
-                  <span className="text-xs font-bold text-violet-400">✦ AI-beslut</span>
+                {VIA_BADGE[last.via] && (
+                  <span className={`text-xs font-bold ${VIA_BADGE[last.via][1]}`}>{VIA_BADGE[last.via][0]}</span>
                 )}
                 {last.dryRun && (
                   <span className="text-xs text-amber-300">torrkörning — styr inte växelriktaren</span>
@@ -178,6 +258,8 @@ export default function Optimizer() {
         </div>
       </div>
 
+      <PlanTimeline />
+
       <AiAdvisor />
 
       <div className="card">
@@ -211,7 +293,7 @@ export default function Optimizer() {
                     </td>
                     <td className="py-2 pr-4">{e.spot != null ? `${(e.spot * 100).toFixed(0)} öre` : '—'}</td>
                     <td className="py-2 pr-4">{e.socPct != null ? `${e.socPct.toFixed(0)} %` : '—'}</td>
-                    <td className="py-2 text-slate-400 text-xs">{e.via === 'ai' && <span className="text-violet-400 font-bold">✦ </span>}{e.error || e.reason}</td>
+                    <td className="py-2 text-slate-400 text-xs">{VIA_BADGE[e.via] && <span className={`font-bold ${VIA_BADGE[e.via][1]}`}>{VIA_BADGE[e.via][0].slice(0, 1)} </span>}{e.error || e.reason}</td>
                   </tr>
                 ))}
               </tbody>
