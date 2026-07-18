@@ -238,10 +238,10 @@ export default function Settings() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Endpoint" hint="https://<resurs>.openai.azure.com" value={s.ai?.azure?.endpoint || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, endpoint: e.target.value } } })} />
+            <Field label="Endpoint" hint="https://<resurs>.services.ai.azure.com eller https://<resurs>.openai.azure.com" value={s.ai?.azure?.endpoint || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, endpoint: e.target.value } } })} />
             <Field label="API-nyckel" type="password" value={s.ai?.azure?.apiKey || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, apiKey: e.target.value } } })} />
             <Field label="Deployment-namn" hint="t.ex. gpt-4o-mini (namnet du gav din deployment)" value={s.ai?.azure?.deployment || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, deployment: e.target.value } } })} />
-            <Field label="API-version" hint="2024-10-21 fungerar för de flesta" value={s.ai?.azure?.apiVersion || '2024-10-21'} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, apiVersion: e.target.value } } })} />
+            <Field label="API-version" hint="Används bara med klassisk openai.azure.com-endpoint" value={s.ai?.azure?.apiVersion || '2024-10-21'} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, apiVersion: e.target.value } } })} />
           </div>
         )}
         <label className="flex items-center gap-3 mt-4 cursor-pointer">

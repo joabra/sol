@@ -26,22 +26,38 @@ async function chat({ prompt, json = false, temperature = 0.3, maxTokens = 700, 
   if (ai.provider === 'azure') {
     const az = ai.azure || {};
     if (!az.endpoint || !az.apiKey || !az.deployment) throw new Error('NOT_CONFIGURED');
-    const url = `${az.endpoint.replace(/\/+$/, '')}/openai/deployments/${encodeURIComponent(az.deployment)}/chat/completions?api-version=${az.apiVersion || '2024-10-21'}`;
+
+    // Två endpoint-format:
+    //  Nya (AI Foundry):  https://<resurs>.services.ai.azure.com/openai/v1  (OpenAI-kompatibelt, Bearer, model = deployment)
+    //  Klassiska:         https://<resurs>.openai.azure.com                 (/openai/deployments/... + api-version, api-key-header)
+    const ep = az.endpoint.replace(/\/+$/, '');
+    const isV1 = /services\.ai\.azure\.com/.test(ep) || /\/openai\/v1$/.test(ep);
+    const url = isV1
+      ? `${/\/openai\/v1$/.test(ep) ? ep : ep + '/openai/v1'}/chat/completions`
+      : `${ep}/openai/deployments/${encodeURIComponent(az.deployment)}/chat/completions?api-version=${az.apiVersion || '2024-10-21'}`;
+    const headers = isV1
+      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${az.apiKey}` }
+      : { 'Content-Type': 'application/json', 'api-key': az.apiKey };
+    // gpt-5/o-serien: kräver max_completion_tokens och tillåter bara standard-temperatur
+    const isReasoning = /^(gpt-5|o\d)/i.test(az.deployment);
+    const body = {
+      ...(isV1 ? { model: az.deployment } : {}),
+      messages: [{ role: 'user', content: prompt }],
+      // Resonerande modeller förbrukar "osynliga" reasoning-tokens ur samma budget — lägg på rejäl marginal
+      ...(isReasoning ? { max_completion_tokens: maxTokens + 6000 } : { max_tokens: maxTokens, temperature }),
+      ...(json ? { response_format: { type: 'json_object' } } : {}),
+    };
+
     let res;
     try {
       res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'api-key': az.apiKey },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          temperature,
-          max_tokens: maxTokens,
-          ...(json ? { response_format: { type: 'json_object' } } : {}),
-        }),
+        headers,
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
-      throw new Error(`Kunde inte nå Azure OpenAI (${az.endpoint}) — kontrollera endpoint-adressen: ${err.message}`);
+      throw new Error(`Kunde inte nå Azure OpenAI (${ep}) — kontrollera endpoint-adressen: ${err.message}`);
     }
     if (res.status === 401) throw new Error('Azure OpenAI avvisade API-nyckeln');
     if (res.status === 404) throw new Error(`Azure OpenAI: deployment "${az.deployment}" hittades inte — kontrollera namn och endpoint`);
@@ -49,7 +65,12 @@ async function chat({ prompt, json = false, temperature = 0.3, maxTokens = 700, 
     if (!res.ok) throw new Error(`Azure OpenAI HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const data = await res.json();
     const text = (data.choices?.[0]?.message?.content || '').trim();
-    if (!text) throw new Error('Tomt svar från Azure OpenAI');
+    if (!text) {
+      const fr = data.choices?.[0]?.finish_reason;
+      throw new Error(fr === 'length'
+        ? 'Azure OpenAI: tokenbudgeten tog slut innan svaret var klart (reasoning-modell) — försök igen'
+        : 'Tomt svar från Azure OpenAI');
+    }
     return { text, model: `azure/${az.deployment}` };
   }
 
