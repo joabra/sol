@@ -11,14 +11,73 @@ import * as weather from './weather.js';
 const ANALYSIS_FILE = path.join(DATA_DIR, 'ai-analysis.json');
 
 export function isConfigured() {
-  return Boolean(loadSettings().ai?.ollamaUrl);
+  const ai = loadSettings().ai || {};
+  if (ai.provider === 'azure') return Boolean(ai.azure?.endpoint && ai.azure?.apiKey && ai.azure?.deployment);
+  return Boolean(ai.ollamaUrl);
 }
 
 function baseUrl() {
   return (loadSettings().ai?.ollamaUrl || '').replace(/\/+$/, '');
 }
 
+// --- Provider-lager: en chat-funktion som fungerar mot både Ollama och Azure OpenAI ---
+async function chat({ prompt, json = false, temperature = 0.3, maxTokens = 700, timeoutMs = 180000 }) {
+  const ai = loadSettings().ai || {};
+  if (ai.provider === 'azure') {
+    const az = ai.azure || {};
+    if (!az.endpoint || !az.apiKey || !az.deployment) throw new Error('NOT_CONFIGURED');
+    const url = `${az.endpoint.replace(/\/+$/, '')}/openai/deployments/${encodeURIComponent(az.deployment)}/chat/completions?api-version=${az.apiVersion || '2024-10-21'}`;
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': az.apiKey },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          temperature,
+          max_tokens: maxTokens,
+          ...(json ? { response_format: { type: 'json_object' } } : {}),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      throw new Error(`Kunde inte nå Azure OpenAI (${az.endpoint}) — kontrollera endpoint-adressen: ${err.message}`);
+    }
+    if (res.status === 401) throw new Error('Azure OpenAI avvisade API-nyckeln');
+    if (res.status === 404) throw new Error(`Azure OpenAI: deployment "${az.deployment}" hittades inte — kontrollera namn och endpoint`);
+    if (res.status === 429) throw new Error('Azure OpenAI: kvoten överskriden (429) — försök igen strax');
+    if (!res.ok) throw new Error(`Azure OpenAI HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const text = (data.choices?.[0]?.message?.content || '').trim();
+    if (!text) throw new Error('Tomt svar från Azure OpenAI');
+    return { text, model: `azure/${az.deployment}` };
+  }
+
+  // Ollama (standard)
+  if (!ai.ollamaUrl) throw new Error('NOT_CONFIGURED');
+  const res = await fetch(`${baseUrl()}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ai.model,
+      stream: false,
+      think: false,
+      ...(json ? { format: 'json' } : {}),
+      messages: [{ role: 'user', content: prompt }],
+      options: { temperature, num_predict: maxTokens },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const text = (data.message?.content || '').trim();
+  if (!text) throw new Error('Tomt svar från modellen');
+  return { text, model: ai.model };
+}
+
 export async function listModels() {
+  const ai = loadSettings().ai || {};
+  if (ai.provider === 'azure') return []; // Azure listar inte deployments via data-planet
   const res = await fetch(`${baseUrl()}/api/tags`, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
   const data = await res.json();
@@ -26,12 +85,17 @@ export async function listModels() {
 }
 
 export async function test() {
+  const ai = loadSettings().ai || {};
+  if (ai.provider === 'azure') {
+    const r = await chat({ prompt: 'Svara med exakt ett ord: OK', maxTokens: 10, temperature: 0, timeoutMs: 20000 });
+    return { ok: true, provider: 'azure', model: r.model, reply: r.text.slice(0, 40) };
+  }
   const models = await listModels();
-  const s = loadSettings().ai;
   return {
     ok: true,
+    provider: 'ollama',
     models: models.map((m) => m.name),
-    modelAvailable: models.some((m) => m.name === s.model),
+    modelAvailable: models.some((m) => m.name === ai.model),
   };
 }
 
@@ -212,32 +276,16 @@ Var kortfattad och konkret. Hitta inte på data som saknas.`;
 }
 
 export async function analyze() {
-  const s = loadSettings().ai;
-  if (!s?.ollamaUrl) throw new Error('NOT_CONFIGURED');
+  if (!isConfigured()) throw new Error('NOT_CONFIGURED');
   const ctx = await gatherContext();
   const prompt = buildPrompt(ctx);
 
   const started = Date.now();
-  const res = await fetch(`${baseUrl()}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: s.model,
-      stream: false,
-      think: false,
-      messages: [{ role: 'user', content: prompt }],
-      options: { temperature: 0.3, num_predict: 700 },
-    }),
-    signal: AbortSignal.timeout(180000),
-  });
-  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  const text = (data.message?.content || '').trim();
-  if (!text) throw new Error('Tomt svar från modellen');
+  const { text, model } = await chat({ prompt, temperature: 0.3, maxTokens: 700, timeoutMs: 180000 });
 
   const analysis = {
     text,
-    model: s.model,
+    model,
     tookSec: +((Date.now() - started) / 1000).toFixed(1),
     time: new Date().toISOString(),
     context: {
@@ -297,27 +345,19 @@ Svara ENDAST med JSON: {"action":"charge"|"discharge"|"idle","powerW":<antal wat
 
 export async function decide() {
   const s = loadSettings();
-  if (!s.ai?.ollamaUrl) throw new Error('NOT_CONFIGURED');
+  if (!isConfigured()) throw new Error('NOT_CONFIGURED');
   const ctx = await gatherContext();
 
-  const res = await fetch(`${baseUrl()}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: s.ai.model,
-      stream: false,
-      think: false,
-      format: 'json',
-      messages: [{ role: 'user', content: buildDecisionPrompt(ctx) }],
-      options: { temperature: 0.1, num_predict: 250 },
-    }),
-    signal: AbortSignal.timeout(120000),
+  const { text } = await chat({
+    prompt: buildDecisionPrompt(ctx),
+    json: true,
+    temperature: 0.1,
+    maxTokens: 250,
+    timeoutMs: 120000,
   });
-  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-  const data = await res.json();
   let parsed;
   try {
-    parsed = JSON.parse(data.message?.content || '');
+    parsed = JSON.parse(text);
   } catch {
     throw new Error('Ogiltigt JSON-svar från modellen');
   }

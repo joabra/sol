@@ -130,7 +130,9 @@ export default function Settings() {
       const r = await api.aiTest();
       setAiResult(
         r.ok
-          ? `✓ Ansluten! ${r.modelAvailable ? 'Modellen finns' : `⚠ modellen saknas — installerade: ${r.models.join(', ')}`}`
+          ? r.provider === 'azure'
+            ? `✓ Ansluten till ${r.model} — svar: "${r.reply}"`
+            : `✓ Ansluten! ${r.modelAvailable ? 'Modellen finns' : `⚠ modellen saknas — installerade: ${r.models.join(', ')}`}`
           : `✗ ${r.error}`
       );
     } catch (e) {
@@ -212,15 +214,36 @@ export default function Settings() {
       </div>
 
       <div className="card">
-        <h2 className="font-bold mb-1">AI-rådgivare (Ollama)</h2>
+        <h2 className="font-bold mb-1">AI-rådgivare</h2>
         <p className="text-xs text-slate-500 mb-4">
-          Lokal AI som analyserar priser, historik och batteristatus och ger en 24-timmarsplan för köp/sälj.
-          Kräver en <a className="underline" href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a>-server på nätverket.
+          AI som analyserar priser, historik och batteristatus och ger en 24-timmarsplan för köp/sälj.
+          Välj lokal <a className="underline" href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a>-server
+          (gratis, data lämnar aldrig hemmet) eller Azure OpenAI (molnet, kraftfullare modeller).
         </p>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Ollama-URL" hint="t.ex. http://192.168.1.9:11434" value={s.ai?.ollamaUrl || ''} onChange={str('ai', 'ollamaUrl')} />
-          <Field label="Modell" hint="qwen3.5:4b rekommenderas — snabb och bra på svenska" value={s.ai?.model || ''} onChange={str('ai', 'model')} />
+        <div className="mb-4">
+          <label className="block text-sm text-slate-400 mb-1">AI-motor</label>
+          <select
+            value={s.ai?.provider || 'ollama'}
+            onChange={(e) => set('ai', 'provider', e.target.value)}
+            className="w-full sm:w-72 bg-panel border border-edge rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="ollama">Ollama (lokal server)</option>
+            <option value="azure">Azure OpenAI (moln)</option>
+          </select>
         </div>
+        {(s.ai?.provider || 'ollama') === 'ollama' ? (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Ollama-URL" hint="t.ex. http://192.168.1.9:11434" value={s.ai?.ollamaUrl || ''} onChange={str('ai', 'ollamaUrl')} />
+            <Field label="Modell" hint="qwen3.5:4b rekommenderas — snabb och bra på svenska" value={s.ai?.model || ''} onChange={str('ai', 'model')} />
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Endpoint" hint="https://<resurs>.openai.azure.com" value={s.ai?.azure?.endpoint || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, endpoint: e.target.value } } })} />
+            <Field label="API-nyckel" type="password" value={s.ai?.azure?.apiKey || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, apiKey: e.target.value } } })} />
+            <Field label="Deployment-namn" hint="t.ex. gpt-4o-mini (namnet du gav din deployment)" value={s.ai?.azure?.deployment || ''} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, deployment: e.target.value } } })} />
+            <Field label="API-version" hint="2024-10-21 fungerar för de flesta" value={s.ai?.azure?.apiVersion || '2024-10-21'} onChange={(e) => setS({ ...s, ai: { ...s.ai, azure: { ...s.ai?.azure, apiVersion: e.target.value } } })} />
+          </div>
+        )}
         <label className="flex items-center gap-3 mt-4 cursor-pointer">
           <input
             type="checkbox"
@@ -229,12 +252,12 @@ export default function Settings() {
             className="w-4 h-4 accent-violet-400"
           />
           <span className="text-sm">
-            Låt AI:n fatta styrbesluten automatiskt (ersätter regelmotorn vid varje optimeringskörning).
+            Låt AI:n fatta styrbesluten automatiskt (kräver strategi ”AI” under Optimering).
             SOC-gränserna gäller alltid som spärr, och regelmotorn tar över om AI:n inte svarar.
           </span>
         </label>
         <div className="mt-4 flex items-center gap-3">
-          <button className="btn-ghost" onClick={testAi} disabled={busy}>Testa Ollama</button>
+          <button className="btn-ghost" onClick={testAi} disabled={busy}>Testa AI-anslutning</button>
           {aiResult && <span className="text-sm text-slate-300">{aiResult}</span>}
         </div>
       </div>

@@ -239,7 +239,7 @@ async function makeDecision({ now, today, future, socPct, settings, rt }) {
     }
   }
 
-  if (strategy === 'ai' && settings.ai?.autoControl && settings.ai?.ollamaUrl) {
+  if (strategy === 'ai' && settings.ai?.autoControl) {
     try {
       const ai = await import('./ai.js');
       const d = await ai.decide();

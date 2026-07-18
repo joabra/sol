@@ -38,9 +38,16 @@ const DEFAULTS = {
   },
   // AI-rådgivare via lokal Ollama-server
   ai: {
+    provider: 'ollama',          // 'ollama' (lokal) eller 'azure' (Azure OpenAI)
     ollamaUrl: '',               // t.ex. http://192.168.1.9:11434
     model: 'qwen3.5:4b',
     autoControl: false,          // låt AI:n fatta styrbesluten (ersätter regelmotorn)
+    azure: {
+      endpoint: '',              // https://<resurs>.openai.azure.com
+      apiKey: '',
+      deployment: '',            // namnet på din deployment, t.ex. gpt-4o-mini
+      apiVersion: '2024-10-21',
+    },
   },
   // Väder (Open-Meteo) — auto-detekteras från anläggningens koordinater om tomt
   weather: {
@@ -130,5 +137,6 @@ export function redactSettings(s) {
   if (clone.notify?.telegramBotToken) clone.notify.telegramBotToken = clone.notify.telegramBotToken.slice(0, 4) + '••••';
   if (clone.ev?.teslaRefreshToken) clone.ev.teslaRefreshToken = clone.ev.teslaRefreshToken.slice(0, 4) + '••••';
   if (clone.ev?.tessieToken) clone.ev.tessieToken = clone.ev.tessieToken.slice(0, 4) + '••••';
+  if (clone.ai?.azure?.apiKey) clone.ai.azure.apiKey = clone.ai.azure.apiKey.slice(0, 4) + '••••';
   return clone;
 }

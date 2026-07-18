@@ -198,6 +198,7 @@ app.put('/api/settings', (req, res) => {
   if (patch.notify?.telegramBotToken?.includes('•')) delete patch.notify.telegramBotToken;
   if (patch.ev?.teslaRefreshToken?.includes('•')) delete patch.ev.teslaRefreshToken;
   if (patch.ev?.tessieToken?.includes('•')) delete patch.ev.tessieToken;
+  if (patch.ai?.azure?.apiKey?.includes('•')) delete patch.ai.azure.apiKey;
   if (patch.tibber?.token !== undefined) tibber.clearCache();
   const merged = saveSettings(patch);
   if (merged.optimizer.enabled && !optimizer.getState().running) optimizer.start();
@@ -259,7 +260,7 @@ app.get('/api/ai/models', wrap(async (req, res) => {
 }));
 
 app.post('/api/ai/test', wrap(async (req, res) => {
-  if (!ai.isConfigured()) return res.status(400).json({ ok: false, error: 'Ollama-URL saknas' });
+  if (!ai.isConfigured()) return res.status(400).json({ ok: false, error: 'AI-inställningar saknas (Ollama-URL eller Azure endpoint/nyckel/deployment)' });
   res.json(await ai.test());
 }));
 
